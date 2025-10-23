@@ -42,7 +42,7 @@ frut factorial.ft
 
 ## Documentation
 For documentation, including language syntax, visit:
-- [Language Reference](https://github.com/BenimFurka/frut_interp/wiki)
+- [Language Reference](https://github.com/BenimFurka/frut_lib/wiki)
 
 ## License
 Licensed under the Apache License, Version 2.0 [LICENSE](LICENSE).
