@@ -1,0 +1,99 @@
+// Frut Language Demonstration
+// This file showcases all the features of the Frut programming language
+
+// 1. Variable declarations with different types
+var greeting: string = "Hello, World!";
+var age: int = 25;
+var pi: double = 3.14159;
+var is_student: bool = true;
+var temperature: double = 23.5;
+
+// 2. Function definitions with parameters and return types
+func calculate_area(width: double, height: double): double {
+    return width * height;
+}
+
+func factorial(n: int): int {
+    if n <= 1 {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+func is_even(num: int): bool {
+    return num % 2 == 0;
+}
+
+// 3. Main program logic
+var area: double = calculate_area(10.5, 8.2);
+var fact_5: int = factorial(5);
+var even_check: bool = is_even(42);
+
+// 4. Conditional statements with if-elif-else
+if age < 18 {
+    println("You are a minor");
+} elif age >= 18 && age < 65 {
+    println("You are an adult");
+
+    if is_student {
+        println("You are a student");
+    }
+} else {
+    println("You are a senior citizen");
+}
+
+// 5. More complex conditional logic
+if temperature > 30.0 {
+    println("It's hot outside!");
+} elif temperature < 10.0 {
+    println("It's cold outside!");
+} else {
+    println("The weather is pleasant");
+}
+
+// 6. Function calls and variable usage
+println("Greeting: " + greeting as string);
+println("Age: " + age as string);
+println("Pi value: " + pi as string);
+println("Is student: " + is_student as string);
+println("Temperature: " + temperature as string);
+println("Rectangle area: " + area as string);
+println("Factorial of 5: " + fact_5 as string);
+println("Is 42 even? " + even_check as string);
+
+// 7. Boolean expressions and comparisons
+var is_adult: bool = age >= 18;
+var is_teenager: bool = age >= 13 && age <= 19;
+var can_vote: bool = age >= 18 && is_student == false;
+
+println("Is adult: " + is_adult as string);
+println("Is teenager: " + is_teenager as string);
+println("Can vote: " + can_vote as string);
+
+// 8. Arithmetic operations
+var doubled_age: int = age * 2;
+var half_pi: double = pi / 2.0;
+var temp_minus_pi: double = temperature - pi;
+
+// Error: Type mismatch
+// var age_plus_temp: double = age + temperature;
+
+println("Doubled age: " + doubled_age as string);
+println("Half pi: " + half_pi as string);
+println("Temperature - Pi: " + temp_minus_pi as string);
+
+// 9. While loop with counter
+var counter: int = 0;
+while counter < 5 {
+    println("Iteration: " + counter as string);
+    counter = counter + 1;
+}
+
+// 10. Type cast
+var int_pi: int = pi as int;
+println("Pi as int: " + int_pi as string);
+
+// 11. Input
+var name: string = input("Enter your name: ");
+println("Hello, " + name + "!");

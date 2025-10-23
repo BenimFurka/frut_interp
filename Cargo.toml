@@ -1,0 +1,25 @@
+[package]
+name = "frut_interp"
+version = "0.0.2"
+edition = "2021"
+authors = ["BenimFurka"]
+description = "A command-line interpreter for the Frut programming language"
+license = "Apache-2.0"
+repository = "https://github.com/BenimFurka/frut_interp"
+keywords = ["interpreter", "programming-language", "frut"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "frut"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+colored = "2.0"
+frut_lib = { version = "0.0.2", features = ["std"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
