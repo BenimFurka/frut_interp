@@ -5,6 +5,7 @@
 use frut_lib::ast::{Expression, ExpressionKind, Statement, StatementKind};
 use frut_lib::types::Type;
 use frut_lib::value::{RuntimeEnvironment, Value};
+use frut_lib::HashMap;
 
 /// Result type for interpreter operations
 pub enum InterpreterResult {
@@ -28,72 +29,13 @@ pub struct Interpreter {
 impl Interpreter {
     /// Create a new semantic analyzer with built-in functions predeclared
     pub fn create_semantic_analyzer(filename: String, source: String) -> frut_lib::semantic::SemanticAnalyzer {
-        let mut analyzer = frut_lib::semantic::SemanticAnalyzer::new(filename, source);
-        // Ignore errors during built-in declaration - they shouldn't happen for built-ins
-        let _ = Self::predeclare_builtins(&mut analyzer);
+        let analyzer = frut_lib::semantic::SemanticAnalyzer::new(filename, source);
         analyzer
-    }
-
-    /// Predeclare built-in functions in the semantic analyzer
-    fn predeclare_builtins(analyzer: &mut frut_lib::semantic::SemanticAnalyzer) -> Result<(), frut_lib::ErrorReport> {
-        // Predeclare print
-        analyzer.predeclare_function(
-            "print".to_string(),
-            vec![frut_lib::types::Type::String],
-            frut_lib::types::Type::Void,
-        )?;
-        
-        // Predeclare println
-        analyzer.predeclare_function(
-            "println".to_string(),
-            vec![frut_lib::types::Type::String],
-            frut_lib::types::Type::Void,
-        )?;
-
-        // Predeclare input
-        analyzer.predeclare_function(
-            "input".to_string(),
-            vec![frut_lib::types::Type::String],
-            frut_lib::types::Type::String,
-        )
     }
     
     /// Create a new interpreter with built-in functions
     pub fn new(filename: String, source: String) -> Self {
-        let mut env = RuntimeEnvironment::new();
-        
-        env.define_function(
-            "print".to_string(),
-            Value::native_function("print", 1, |args| {
-                if let Value::String(s) = &args[0] {
-                    print!("{}", s);
-                }
-                Ok(Value::Void)
-            })
-        );
-        
-        env.define_function(
-            "println".to_string(),
-            Value::native_function("println", 1, |args| {
-                if let Value::String(s) = &args[0] {
-                    println!("{}", s);
-                }
-                Ok(Value::Void)
-            })
-        );
-        
-        env.define_function(
-            "input".to_string(),
-            Value::native_function("input", 1, |args| {
-                use std::io::{self, Write};
-                print!("{}", args[0]);
-                io::stdout().flush().unwrap();
-                
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
-                Ok(Value::String(input.trim_end().to_string()))
-            })
-        );
+        let env = RuntimeEnvironment::new();
         
         Self {
             environment: env,
@@ -319,7 +261,18 @@ impl Interpreter {
                 InterpreterResult::Ok(())
             }
             StatementKind::Import { .. } => {
-                // lol
+                InterpreterResult::Ok(())
+            }
+            StatementKind::TypeDeclaration { .. } => {
+                InterpreterResult::Ok(())
+            }
+            StatementKind::ExtDeclaration { type_name: _, methods } => {
+                for method in methods {
+                    match self.interpret_statement(method) {
+                        InterpreterResult::Err(e) => return InterpreterResult::Err(e),
+                        _ => {}
+                    }
+                }
                 InterpreterResult::Ok(())
             }
         }
@@ -353,13 +306,82 @@ impl Interpreter {
                 }
             }
             ExpressionKind::FunctionCall { callee, arguments } => {
-                if let ExpressionKind::Variable(name) = &callee.kind {
-                    self.call_function(name, arguments, &callee.pos)
-                } else {
-                    Err(self.create_error(frut_lib::ErrorType::TypeError, "Callee is not a variable".to_string(), &callee.pos))
+                match &callee.kind {
+                    ExpressionKind::Variable(name) => {
+                        self.call_function(name, arguments, &callee.pos)
+                    }
+                    ExpressionKind::MemberAccess { object, member } => {
+                        let try_obj_value = self.interpret_expression(object);
+                        match try_obj_value {
+                            Ok(Value::Struct { .. }) => {
+                                let mut all_args = Vec::with_capacity(arguments.len() + 1);
+                                all_args.push(*object.clone());
+                                all_args.extend(arguments.iter().cloned());
+                                self.call_function(member, &all_args, &callee.pos)
+                            }
+                            Ok(non_struct_val) => {
+                                let mut arg_values = Vec::with_capacity(arguments.len());
+                                for arg_expr in arguments {
+                                    let v = self.interpret_expression(arg_expr)?;
+                                    arg_values.push(v);
+                                }
+                                if let Some(res) = frut_std::call_primitive_method(&non_struct_val, member.as_str(), arg_values) {
+                                    match res {
+                                        Ok(v) => Ok(v),
+                                        Err(e) => Err(self.create_error(frut_lib::ErrorType::RuntimeError, e, &callee.pos)),
+                                    }
+                                } else if let ExpressionKind::Variable(struct_name) = &object.kind {
+                                    self.call_static_method(struct_name, member, arguments, &callee.pos)
+                                } else {
+                                    Err(self.create_error(frut_lib::ErrorType::TypeError, "Invalid method call target".to_string(), &callee.pos))
+                                }
+                            }
+                            Err(_e) => {
+                                if let ExpressionKind::Variable(struct_name) = &object.kind {
+                                    self.call_static_method(struct_name, member, arguments, &callee.pos)
+                                } else {
+                                    Err(self.create_error(frut_lib::ErrorType::TypeError, "Invalid method call target".to_string(), &callee.pos))
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        Err(self.create_error(frut_lib::ErrorType::TypeError, "Callee is not a variable".to_string(), &callee.pos))
+                    }
                 }
             }
             
+            ExpressionKind::StructLiteral { type_name, fields } => {
+                let mut field_values = HashMap::default();
+                for (name, expr) in fields {
+                    let value = self.interpret_expression(expr)?;
+                    field_values.insert(name.clone(), value);
+                }
+                Ok(Value::Struct {
+                    type_name: type_name.clone(),
+                    fields: field_values,
+                })
+            }
+            ExpressionKind::MemberAccess { object, member } => {
+                let obj_value = self.interpret_expression(object)?;
+                if let Value::Struct { fields, .. } = obj_value {
+                    if let Some(value) = fields.get(member) {
+                        Ok(value.clone())
+                    } else {
+                        Err(self.create_error(
+                            frut_lib::ErrorType::RuntimeError,
+                            format!("Struct has no field '{}'", member),
+                            &expr.pos
+                        ))
+                    }
+                } else {
+                    Err(self.create_error(
+                        frut_lib::ErrorType::TypeError,
+                        "Member access can only be performed on structs".to_string(),
+                        &expr.pos
+                    ))
+                }
+            }
             ExpressionKind::Cast { expr, target_type } => {
                 let val = self.interpret_expression(expr)?;
                 match target_type.as_str() {
@@ -396,6 +418,9 @@ impl Interpreter {
                         Value::String(s) => Ok(Value::String(s)),
                         Value::Function { .. } => Ok(Value::String("<function>".to_string())),
                         Value::NativeFunction { .. } => Ok(Value::String("<native function>".to_string())),
+                        Value::Struct { type_name, fields } => {
+                            Ok(Value::String(format!("{} {{ {} fields }}", type_name, fields.len())))
+                        }
                     },
                     "bool" => match val {
                         Value::Void => Ok(Value::Bool(false)),
@@ -404,6 +429,7 @@ impl Interpreter {
                         Value::Bool(b) => Ok(Value::Bool(b)),
                         Value::String(s) => Ok(Value::Bool(!s.is_empty())),
                         Value::Function { .. } | Value::NativeFunction { .. } => Ok(Value::Bool(true)),
+                        Value::Struct { .. } => Ok(Value::Bool(true)),
                     },
                     _ => Err(self.create_error(
                         frut_lib::ErrorType::TypeError,
@@ -459,7 +485,7 @@ impl Interpreter {
                 }
             }
         } else if let Some(Value::Function { params, body, .. }) = self.environment.get_variable(name).cloned() {
-            if args.len() != params.len() {
+            if args.len() > params.len() {
                 let err = self.create_error(frut_lib::ErrorType::TypeError, format!("Expected {} arguments, but got {}", params.len(), args.len()), pos);
                 self.recursion_depth -= 1;
                 return Err(err);
@@ -476,8 +502,12 @@ impl Interpreter {
             loop {
                 self.environment.enter_scope();
 
-                for (param, val) in params.iter().zip(arg_values.iter()) {
-                    self.environment.define_variable(param.name.clone(), val.clone());
+                for (i, (param, val)) in params.iter().zip(arg_values.iter()).enumerate() {
+                    if i == 0 && param.name == "self" {
+                        self.environment.define_variable("self".to_string(), val.clone());
+                    } else {
+                        self.environment.define_variable(param.name.clone(), val.clone());
+                    }
                 }
 
                 let mut did_tailcall = false;
@@ -536,4 +566,14 @@ impl Interpreter {
         &self.environment
     }
 
+    /// Get a mutable reference to the runtime environment (for custom registrations)
+    pub fn environment_mut(&mut self) -> &mut RuntimeEnvironment {
+        &mut self.environment
+    }
+
+    /// Call a static method on a struct
+    fn call_static_method(&mut self, _struct_name: &str, method_name: &str, args: &[Expression], pos: &frut_lib::Position) -> Result<Value, frut_lib::ErrorReport> {
+        // TODO: maybe not very correct?
+        self.call_function(method_name, args, pos)
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "frut_interp"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["BenimFurka"]
 description = "A command-line interpreter for the Frut programming language"
@@ -16,7 +16,8 @@ doc = false
 
 [dependencies]
 colored = "2.0"
-frut_lib = { version = "0.0.2", features = ["std"] }
+frut_lib = { version = "0.0.3", features = ["std"] }
+frut_std = "0.0.3"
 
 [profile.dev]
 panic = "abort"
