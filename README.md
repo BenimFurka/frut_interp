@@ -20,6 +20,8 @@ frut path/to/script.ft
 A simple Frut program that calculates factorials:
 
 ```frut
+import std.io.*;
+
 // Calculate factorial of a number
 func factorial(n: int): int {
     if n <= 1 {

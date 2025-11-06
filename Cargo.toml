@@ -1,6 +1,6 @@
 [package]
 name = "frut_interp"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 authors = ["BenimFurka"]
 description = "A command-line interpreter for the Frut programming language"
