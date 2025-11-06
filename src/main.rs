@@ -5,7 +5,6 @@ use frut_lib::{parse_files, File as FrutFile, ErrorReport, Statement, StatementK
 use frut_interp::interpreter::Interpreter;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
 
 fn display_error(error: &ErrorReport) -> String {
     use std::fmt::Write;
@@ -66,33 +65,7 @@ fn main() {
         }
     };
 
-    let entry_dir = Path::new(file_path).parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
-    let mut files: Vec<FrutFile> = Vec::new();
-    
-    fn collect_ft_files(dir: &Path, out: &mut Vec<FrutFile>) {
-        if let Ok(entries) = fs::read_dir(dir) {
-            for ent in entries.flatten() {
-                let path = ent.path();
-                if path.is_dir() {
-                    collect_ft_files(&path, out);
-                } else if path.extension().map_or(false, |ext| ext == "ft") {
-                    if let Ok(code) = fs::read_to_string(&path) {
-                        out.push(FrutFile { 
-                            path: path.to_string_lossy().to_string(), 
-                            code, 
-                            ast: None 
-                        });
-                    }
-                }
-            }
-        }
-    }
-    
-    collect_ft_files(&entry_dir, &mut files); 
-    
-    if !files.iter().any(|f| f.path == *file_path) {
-        files.push(FrutFile { path: file_path.to_string(), code: content.clone(), ast: None });
-    }
+    let files: Vec<FrutFile> = vec![FrutFile { path: file_path.to_string(), code: content.clone(), ast: None }];
 
     let project_result = parse_files(files);
     if !project_result.errors.is_empty() {
@@ -116,7 +89,7 @@ fn main() {
             for stmt in ast.iter() {
                 if let StatementKind::Import { path, kind } = &stmt.kind {
                     if frut_std::has_native_module(path) {
-                        if let Some(sigs) = frut_std::native_signatures_for(path) {
+                        if let Some(sigs) = frut_std::signatures_for(path) {
                             match kind {
                                 frut_lib::ImportKind::Wildcard => {
                                     for fs in sigs.iter() {
@@ -211,7 +184,7 @@ fn main() {
                 Some(set) => (k, Some(set.into_iter().collect())),
             }
         }).collect();
-        frut_std::register_native_modules(interpreter.environment_mut(), &modules);
+        frut_std::register_modules(interpreter.environment_mut(), &modules);
     }
     match interpreter.interpret(&combined) {
         Ok(_) => {

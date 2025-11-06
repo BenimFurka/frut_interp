@@ -7,7 +7,7 @@ import std.io.*;
 // 1. Variable declarations with different types
 var greeting: string = "Hello, World!";
 var age: int = 25;
-var pi: double = 3.14159;
+var test_pi: double = 3.14159;
 var is_student: bool = true;
 var temperature: double = 23.5;
 
@@ -56,50 +56,52 @@ if temperature > 30.0 {
 }
 
 // 6. Function calls and variable usage
-println("Greeting: " + greeting);
-println("Age: " + age);
-println("Pi value: " + pi);
-println("Is student: " + is_student);
-println("Temperature: " + temperature);
-println("Rectangle area: " + area);
-println("Factorial of 5: " + fact_5);
-println("Is 42 even? " + even_check);
+println("Greeting: ${greeting}");
+println("Age: ${age}");
+println("Pi value: ${test_pi}");
+println("Is student: ${is_student}");
+println("Temperature: ${temperature}");
+println("Rectangle area: ${area}");
+println("Factorial of 5: ${fact_5}");
+println("Is 42 even? ${even_check}");
 
 // 7. Boolean expressions and comparisons
 var is_adult: bool = age >= 18;
 var is_teenager: bool = age >= 13 && age <= 19;
 var can_vote: bool = age >= 18 && is_student == false;
 
-println("Is adult: " + is_adult);
-println("Is teenager: " + is_teenager);
-println("Can vote: " + can_vote);
+println("Is adult: ${is_adult}");
+println("Is teenager: ${is_teenager}");
+println("Can vote: ${can_vote}");
 
 // 8. Arithmetic operations
 var doubled_age: int = age * 2;
-var half_pi: double = pi / 2.0;
-var temp_minus_pi: double = temperature - pi;
+var half_pi: double = test_pi / 2.0;
+var temp_minus_pi: double = temperature - test_pi;
+var greeting_age: string = greeting + age;
 
 // Error: Type mismatch
 // var age_plus_temp: double = age + temperature;
 
-println("Doubled age: " + doubled_age);
-println("Half pi: " + half_pi);
-println("Temperature - Pi: " + temp_minus_pi);
+println("Doubled age: ${doubled_age}");
+println("Half pi: ${half_pi}");
+println("Temperature - Pi: ${temp_minus_pi}");
+println("Greeting + age: ${greeting_age}");
 
 // 9. While loop with counter
 var counter: int = 0;
 while counter < 5 {
-    println("Iteration: " + counter);
+    println("Iteration: ${counter}");
     counter = counter + 1;
 }
 
 // 10. Type cast
-var int_pi: int = pi as int;
-println("Pi as int: " + int_pi);
+var int_pi: int = test_pi as int;
+println("Pi as int: ${int_pi}");
 
 // 11. Input
 var name: string = input("Enter your name: ");
-println("Hello, " + name + "!");
+println("Hello, ${name}!");
 
 // 12. Types
 type Example {
@@ -110,7 +112,7 @@ type Example {
 // 13. Extension for types
 ext Example {
     func display(self: Example) {
-        println("Example { x: " + self.x + ", y: " + self.y + " }");
+        println("Example { x: ${self.x}, y: ${self.y} }");
     }
 
     func create(x: int, y: int): Example {
@@ -125,21 +127,38 @@ example.display();
 var example2: Example = Example { x: 3, y: 4 };
 example2.display();
 
-println("example.x = " + example.x);
-println("example2.y = " + example2.y);
+println("example.x = ${example.x}");
+println("example2.y = ${example2.y}");
 
 // 15. Std modules
 import std.math.*;
 
-println("abs_i(-5) = " + abs_i(-5));
-println("min_i(3, 5) = " + min_i(3, 5));
-println("max_i(3, 5) = " + max_i(3, 5));
+println("min_i(3, 5) = ${min_i(3, 5)}");
+println("max_i(3, 5) = ${max_i(3, 5)}");
 
 // 16. Methods for primitive types
-println("Length of your name is " + name.len());
+println("Length of your name is ${name.len()}");
 
 if "Frut".contains("ru") {
     println("Frut contains ru");
 }
 
-println("true is " + true.to_int())
+println("true is ${true.to_int()}")
+
+// 17. Interpolation
+var xa: int = 42;
+var ya: double = 3.5;
+var sa: string = "hello";
+var ba: bool = true;
+
+println("xa = ${xa}");
+println("ya = ${ya}");
+println("sa.len = ${sa.len()}");
+println("abs = ${(-5).abs()} ${(-3.14).abs()}");
+println("mix = ${sa} ${xa} ${ya} ${ba}");
+
+// Escaping
+println("escaped: \${not} and plain ${1+2}");
+
+// Expressions
+println("expr = ${xa + 1}");

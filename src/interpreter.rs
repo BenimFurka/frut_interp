@@ -112,16 +112,84 @@ impl Interpreter {
                 self.environment.define_variable(name.clone(), value);
                 InterpreterResult::Ok(())
             }
-            StatementKind::Assignment { name, value } => {
+            StatementKind::Assignment { target, value } => {
+                fn extract_path(expr: &Expression) -> Option<(String, Vec<String>)> {
+                    match &expr.kind {
+                        ExpressionKind::Variable(name) => Some((name.clone(), vec![])),
+                        ExpressionKind::MemberAccess { object, member } => {
+                            let (root, mut path) = extract_path(object)?;
+                            path.push(member.clone());
+                            Some((root, path))
+                        }
+                        _ => None,
+                    }
+                }
+
+                fn set_nested_field(mut v: Value, path: &[String], new_val: Value) -> Result<Value, String> {
+                    if path.is_empty() {
+                        return Ok(new_val);
+                    }
+                    match &mut v {
+                        Value::Struct { fields, .. } => {
+                            let key = &path[0];
+                            let existing = fields.remove(key).ok_or_else(|| format!("Struct has no field '{}'", key))?;
+                            let updated = set_nested_field(existing, &path[1..], new_val)?;
+                            fields.insert(key.clone(), updated);
+                            Ok(v)
+                        }
+                        _ => Err("Member assignment target is not a struct".to_string()),
+                    }
+                }
+
                 let new_value = match self.interpret_expression(value) {
                     Ok(v) => v,
                     Err(e) => return InterpreterResult::Err(e),
                 };
 
-                if let Err(e) = self.environment.set_variable(name, new_value) {
-                    return InterpreterResult::Err(self.create_error(frut_lib::ErrorType::RuntimeError, e, &statement.pos));
+                match &target.kind {
+                    ExpressionKind::Variable(name) => {
+                        if let Err(e) = self.environment.set_variable(name, new_value) {
+                            return InterpreterResult::Err(self.create_error(frut_lib::ErrorType::RuntimeError, e, &statement.pos));
+                        }
+                        InterpreterResult::Ok(())
+                    }
+                    ExpressionKind::MemberAccess { .. } => {
+                        let (root, path) = match extract_path(target) {
+                            Some(p) => p,
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    "Invalid assignment target".to_string(),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+                        let current = match self.environment.get_variable(&root) {
+                            Some(v) => v.clone(),
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    format!("Variable '{}' not found", root),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+                        match set_nested_field(current, &path, new_value) {
+                            Ok(updated_root) => {
+                                if let Err(e) = self.environment.set_variable(&root, updated_root) {
+                                    return InterpreterResult::Err(self.create_error(frut_lib::ErrorType::RuntimeError, e, &statement.pos));
+                                }
+                                InterpreterResult::Ok(())
+                            }
+                            Err(msg) => InterpreterResult::Err(self.create_error(frut_lib::ErrorType::RuntimeError, msg, &statement.pos)),
+                        }
+                    }
+                    _ => InterpreterResult::Err(self.create_error(
+                        frut_lib::ErrorType::RuntimeError,
+                        "Invalid assignment target".to_string(),
+                        &statement.pos,
+                    )),
                 }
-                InterpreterResult::Ok(())
             }
             StatementKind::IfStatement { condition, then_branch, elif_branches, else_branch } => {
                 let condition_value = match self.interpret_expression(condition) {
@@ -263,14 +331,22 @@ impl Interpreter {
             StatementKind::Import { .. } => {
                 InterpreterResult::Ok(())
             }
-            StatementKind::TypeDeclaration { .. } => {
+            StatementKind::TypeDeclaration { name, fields } => {
+                let schema: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
+                self.environment.define_schema(name.clone(), schema);
                 InterpreterResult::Ok(())
             }
-            StatementKind::ExtDeclaration { type_name: _, methods } => {
+            StatementKind::ExtDeclaration { type_name, methods } => {
                 for method in methods {
-                    match self.interpret_statement(method) {
-                        InterpreterResult::Err(e) => return InterpreterResult::Err(e),
-                        _ => {}
+                    if let StatementKind::FunctionDeclaration { name, params, body, .. } = &method.kind {
+                        let return_type = Type::Void;
+                        let func = Value::Function {
+                            name: format!("{}__{}", type_name, name),
+                            params: params.clone(),
+                            return_type,
+                            body: body.clone(),
+                        };
+                        self.environment.define_function(format!("{}__{}", type_name, name), func);
                     }
                 }
                 InterpreterResult::Ok(())
@@ -311,13 +387,20 @@ impl Interpreter {
                         self.call_function(name, arguments, &callee.pos)
                     }
                     ExpressionKind::MemberAccess { object, member } => {
+                        if let ExpressionKind::Variable(struct_name) = &object.kind {
+                            if self.environment.get_schema(struct_name).is_some() {
+                                let namespaced = format!("{}__{}", struct_name, member);
+                                return self.call_function(&namespaced, arguments, &callee.pos);
+                            }
+                        }
                         let try_obj_value = self.interpret_expression(object);
                         match try_obj_value {
-                            Ok(Value::Struct { .. }) => {
+                            Ok(Value::Struct { type_name, .. }) => {
                                 let mut all_args = Vec::with_capacity(arguments.len() + 1);
                                 all_args.push(*object.clone());
                                 all_args.extend(arguments.iter().cloned());
-                                self.call_function(member, &all_args, &callee.pos)
+                                let namespaced = format!("{}__{}", type_name, member);
+                                self.call_function(&namespaced, &all_args, &callee.pos)
                             }
                             Ok(non_struct_val) => {
                                 let mut arg_values = Vec::with_capacity(arguments.len());
@@ -325,23 +408,17 @@ impl Interpreter {
                                     let v = self.interpret_expression(arg_expr)?;
                                     arg_values.push(v);
                                 }
-                                if let Some(res) = frut_std::call_primitive_method(&non_struct_val, member.as_str(), arg_values) {
+                                if let Some(res) = frut_lib::primitives::call(&non_struct_val, member.as_str(), arg_values) {
                                     match res {
                                         Ok(v) => Ok(v),
                                         Err(e) => Err(self.create_error(frut_lib::ErrorType::RuntimeError, e, &callee.pos)),
                                     }
-                                } else if let ExpressionKind::Variable(struct_name) = &object.kind {
-                                    self.call_static_method(struct_name, member, arguments, &callee.pos)
                                 } else {
                                     Err(self.create_error(frut_lib::ErrorType::TypeError, "Invalid method call target".to_string(), &callee.pos))
                                 }
                             }
                             Err(_e) => {
-                                if let ExpressionKind::Variable(struct_name) = &object.kind {
-                                    self.call_static_method(struct_name, member, arguments, &callee.pos)
-                                } else {
-                                    Err(self.create_error(frut_lib::ErrorType::TypeError, "Invalid method call target".to_string(), &callee.pos))
-                                }
+                                Err(self.create_error(frut_lib::ErrorType::TypeError, "Invalid method call target".to_string(), &callee.pos))
                             }
                         }
                     }
@@ -353,14 +430,34 @@ impl Interpreter {
             
             ExpressionKind::StructLiteral { type_name, fields } => {
                 let mut field_values = HashMap::default();
-                for (name, expr) in fields {
-                    let value = self.interpret_expression(expr)?;
-                    field_values.insert(name.clone(), value);
+                let schema_opt = self.environment.get_schema(type_name).cloned();
+                let names_match_schema = match &schema_opt {
+                    Some(schema) => fields.iter().all(|(n, _)| schema.contains(n)),
+                    None => true,
+                };
+                if let Some(schema) = schema_opt {
+                    if !names_match_schema && schema.len() == fields.len() {
+                        let mut provided: Vec<(&String, &Expression)> = fields.iter().map(|(n,e)| (n,e)).collect();
+                        provided.sort_by(|a,b| a.0.cmp(b.0));
+                        let mut decl_sorted: Vec<String> = schema.clone();
+                        decl_sorted.sort();
+                        for ((_, expr), decl_name) in provided.iter().zip(decl_sorted.iter()) {
+                            let value = self.interpret_expression(expr)?;
+                            field_values.insert(decl_name.clone(), value);
+                        }
+                    } else {
+                        for (name, expr) in fields {
+                            let value = self.interpret_expression(expr)?;
+                            field_values.insert(name.clone(), value);
+                        }
+                    }
+                } else {
+                    for (name, expr) in fields {
+                        let value = self.interpret_expression(expr)?;
+                        field_values.insert(name.clone(), value);
+                    }
                 }
-                Ok(Value::Struct {
-                    type_name: type_name.clone(),
-                    fields: field_values,
-                })
+                Ok(Value::Struct { type_name: type_name.clone(), fields: field_values })
             }
             ExpressionKind::MemberAccess { object, member } => {
                 let obj_value = self.interpret_expression(object)?;
@@ -569,11 +666,5 @@ impl Interpreter {
     /// Get a mutable reference to the runtime environment (for custom registrations)
     pub fn environment_mut(&mut self) -> &mut RuntimeEnvironment {
         &mut self.environment
-    }
-
-    /// Call a static method on a struct
-    fn call_static_method(&mut self, _struct_name: &str, method_name: &str, args: &[Expression], pos: &frut_lib::Position) -> Result<Value, frut_lib::ErrorReport> {
-        // TODO: maybe not very correct?
-        self.call_function(method_name, args, pos)
     }
 }
