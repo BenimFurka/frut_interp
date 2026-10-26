@@ -1,0 +1,5 @@
+// Low-level byte-buffer bridges (host-provided)
+foreign func bytes_from_string(s: string): bytes;
+foreign func string_from_bytes(b: bytes): string;
+foreign func bytes_from_array(arr: [int]): bytes;
+foreign func array_from_bytes(b: bytes): [int];

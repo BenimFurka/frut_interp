@@ -1,0 +1,6 @@
+// Low-level process primitives (host-provided)
+foreign func native_get_pid(): int;
+foreign func native_spawn(name: string): int;
+foreign func native_exit(code: int): void;
+foreign func native_waitpid(pid: int): int;
+foreign func native_args(): string;

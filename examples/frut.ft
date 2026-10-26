@@ -99,9 +99,9 @@ while counter < 5 {
 var int_pi: int = test_pi as int;
 println("Pi as int: ${int_pi}");
 
-// 11. Input
-var name: string = input("Enter your name: ");
-println("Hello, ${name}!");
+// 11. Input (interactive - commented out to keep the demo non-blocking)
+// var name: string = input("Enter your name: ");
+// println("Hello, ${name}!");
 
 // 12. Types
 type Example {
@@ -133,10 +133,12 @@ println("example2.y = ${example2.y}");
 // 15. Std modules
 import std.math.*;
 
-println("min_i(3, 5) = ${min_i(3, 5)}");
-println("max_i(3, 5) = ${max_i(3, 5)}");
+println("min(3, 5) = ${min(3, 5)}");
+println("max(3, 5) = ${max(3, 5)}");
+println("abs(-7) = ${abs(-7)}");
 
 // 16. Methods for primitive types
+var name: string = "Frut";
 println("Length of your name is ${name.len()}");
 
 if "Frut".contains("ru") {
@@ -162,3 +164,109 @@ println("escaped: \${not} and plain ${1+2}");
 
 // Expressions
 println("expr = ${xa + 1}");
+
+// 18. Enums (unit variants and payload variants)
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Shape {
+    Circle(double),
+    Rect(double, double),
+}
+
+var fav_color: Color = Color.Green;
+println("fav is Green: ${fav_color.is_Green()}");
+
+var my_shape: Shape = Shape.Circle(2.5);
+if my_shape.is_Circle() {
+    println("circle radius: ${my_shape.payload()[0]}");
+} else {
+    println("rect: ${my_shape.payload()[0]}x${my_shape.payload()[1]}");
+}
+
+// 19. Enum comparison
+var c1: Color = Color.Red;
+var c2: Color = Color.Red;
+println("c1 == c2: ${c1 == c2}");
+
+// 20. Fixed-length arrays
+var fib: [int; 5] = [0, 1, 1, 2, 3];
+println("fib[0] = ${fib[0]}, fib[4] = ${fib[4]}");
+println("fib.len() = ${fib.len()}");
+
+fib[4] = 5;
+println("after write, fib[4] = ${fib[4]}");
+
+var pair: [string; 2] = ["Hello", "Frut"];
+println("${pair[0]}, ${pair[1]}!");
+
+// 21. Generics
+func identity<T>(x: T): T {
+    return x;
+}
+
+var gi: int = identity(100);
+var gs: string = identity("generics");
+println("identity(100) = ${gi}, identity(generics) = ${gs}");
+
+type Box<T> {
+    value: T;
+}
+
+var box: Box<int> = Box { value: 7 };
+println("box.value = ${box.value}");
+
+// 22. Interfaces
+interface Figure {
+    func area(self): double;
+    func perimeter(self): double;
+}
+
+type Rect {
+    w: double;
+    h: double;
+}
+
+type Circle {
+    r: double;
+}
+
+ext Rect : Figure {
+    func area(self: Rect): double {
+        return self.w * self.h;
+    }
+    func perimeter(self: Rect): double {
+        return 2.0 * (self.w + self.h);
+    }
+}
+
+ext Circle : Figure {
+    func area(self: Circle): double {
+        return 3.14159 * self.r * self.r;
+    }
+    func perimeter(self: Circle): double {
+        return 2.0 * 3.14159 * self.r;
+    }
+}
+// Polymorphic function: accepts any type that implements Figure
+func describe(s: Figure): string {
+    return "area=${s.area()}, perimeter=${s.perimeter()}";
+}
+
+var rect: Rect = Rect { w: 2.0, h: 3.0 };
+var circle: Circle = Circle { r: 1.0 };
+println(describe(rect));
+println(describe(circle));
+
+// A heterogeneous array of an interface type
+var shapes: [Figure; 2] = [rect, circle];
+var total_area: double = 0.0;
+var si: int = 0;
+while si < shapes.len() {
+    total_area = total_area + shapes[si].area();
+    si = si + 1;
+}
+println("total area = ${total_area}");

@@ -1,0 +1,13 @@
+// Time and delays
+import std.native.time.native_sleep;
+import std.native.time.native_get_ticks;
+
+// Blocks for at least `ms` milliseconds
+func sleep(ms: int): void {
+    native_sleep(ms);
+}
+
+// Monotonic tick counter since boot
+func get_ticks(): int {
+    return native_get_ticks();
+}

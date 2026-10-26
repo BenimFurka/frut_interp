@@ -1,0 +1,131 @@
+// Dynamic vectors Vec<T>.
+//
+// Vec<T> is a handle type: `handle` is an index into the host's vector table
+// (-1 = empty/freed). The generic parameter `T` is checked at compile time and
+// erased at runtime.
+//
+//   import std.vec.*;
+//
+//   var v: Vec<int> = Vec.new();
+//   v.push(42);
+//   var x: int = v.get(0);
+//   var n: int = v.len();
+//   v.free();
+import std.native.vec.*;
+
+type Vec<T> {
+    handle: int;
+}
+
+// Allocates an empty vector
+func vec_new<T>(): Vec<T> {
+    return Vec { handle: native_vec_new() };
+}
+
+// `handle = -1`, no allocation; for struct fields before initialisation
+func vec_empty<T>(): Vec<T> {
+    return Vec { handle: -1 };
+}
+
+// Appends `x`. false on an invalid handle
+func vec_push<T>(v: Vec<T>, x: T): bool {
+    return native_vec_push(v.handle, x);
+}
+
+// Element at `i`. Error on bad handle/index
+func vec_get<T>(v: Vec<T>, i: int): T {
+    return native_vec_get(v.handle, i);
+}
+
+// Replaces element at `i`. false on bad handle/index
+func vec_set<T>(v: Vec<T>, i: int, x: T): bool {
+    return native_vec_set(v.handle, i, x);
+}
+
+// Element count (0 on bad handle)
+func vec_len<T>(v: Vec<T>): int {
+    return native_vec_len(v.handle);
+}
+
+// Removes and returns the last element. Error if empty.
+func vec_pop<T>(v: Vec<T>): T {
+    return native_vec_pop(v.handle);
+}
+
+// Sets length to 0, keeps the allocation
+func vec_clear<T>(v: Vec<T>): bool {
+    return native_vec_clear(v.handle);
+}
+
+// Releases the vector; the handle becomes invalid
+func vec_free<T>(v: Vec<T>): bool {
+    return native_vec_free(v.handle);
+}
+
+// Inserts at `i`, shifting the tail right; `i` is clamped to `[0, len]`
+func vec_insert<T>(v: Vec<T>, i: int, x: T): bool {
+    return native_vec_insert(v.handle, i, x);
+}
+
+// Removes at `i`, shifting the tail left. false if out of range
+func vec_remove_at<T>(v: Vec<T>, i: int): bool {
+    return native_vec_remove_at(v.handle, i);
+}
+
+// Method form of the free functions above
+ext Vec<T> {
+    // Allocates an empty vector
+    func new(): Vec<T> {
+        return vec_new<T>();
+    }
+
+    // `handle = -1`, no allocation
+    func empty(): Vec<T> {
+        return vec_empty<T>();
+    }
+
+    // Appends `x`
+    func push(self: Vec<T>, x: T): bool {
+        return vec_push<T>(self, x);
+    }
+
+    // Element at `i`
+    func get(self: Vec<T>, i: int): T {
+        return vec_get<T>(self, i);
+    }
+
+    // Replaces element at `i`
+    func set(self: Vec<T>, i: int, x: T): bool {
+        return vec_set<T>(self, i, x);
+    }
+
+    // Element count
+    func len(self: Vec<T>): int {
+        return vec_len<T>(self);
+    }
+
+    // Removes and returns the last element
+    func pop(self: Vec<T>): T {
+        return vec_pop<T>(self);
+    }
+
+    // Sets length to 0
+    func clear(self: Vec<T>): bool {
+        return vec_clear<T>(self);
+    }
+
+    // Releases the vector
+    func free(self: Vec<T>): bool {
+        return vec_free<T>(self);
+    }
+
+    // Inserts at `i`, shifting the tail right
+    func insert(self: Vec<T>, i: int, x: T): bool {
+        return vec_insert<T>(self, i, x);
+    }
+
+    // Removes at `i`, shifting the tail left
+    func remove_at(self: Vec<T>, i: int): bool {
+        return vec_remove_at<T>(self, i);
+    }
+}

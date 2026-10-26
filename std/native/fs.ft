@@ -1,0 +1,12 @@
+// Low-level filesystem primitives (host-provided)
+foreign func native_fs_read(path: string): string;
+foreign func native_fs_write(path: string, data: string): bool;
+foreign func native_fs_read_b(path: string, max_len: int): bytes;
+foreign func native_fs_write_b(path: string, data: bytes): bool;
+// Newline-separated entry names of a directory ("" when empty/absent)
+foreign func native_fs_list_dir(path: string): string;
+foreign func native_fs_create_dir(path: string): bool;
+foreign func native_fs_remove(path: string): bool;
+foreign func native_fs_rename(old_path: string, new_path: string): bool;
+foreign func native_fs_is_dir(path: string): bool;
+foreign func native_fs_size(path: string): int;

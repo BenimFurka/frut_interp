@@ -1,0 +1,6 @@
+// Low-level math primitives (host-provided)
+foreign func native_abs(x: int): int;
+foreign func native_min(a: int, b: int): int;
+foreign func native_max(a: int, b: int): int;
+foreign func native_pow(base: int, exp: int): int;
+foreign func native_sqrt(x: double): double;

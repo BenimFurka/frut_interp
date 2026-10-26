@@ -1,0 +1,7 @@
+// Low-level byte-indexed string primitives (host-provided)
+foreign func native_str_len(s: string): int;
+foreign func native_str_char_at(s: string, i: int): string;
+foreign func native_str_char_code(s: string, i: int): int;
+foreign func native_str_substring(s: string, start: int, end: int): string;
+foreign func native_str_from_code(code: int): string;
+foreign func native_str_index_of(s: string, sub: string): int;

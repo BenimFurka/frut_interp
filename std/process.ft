@@ -1,0 +1,31 @@
+// Process control
+import std.native.process.native_get_pid;
+import std.native.process.native_spawn;
+import std.native.process.native_exit;
+import std.native.process.native_waitpid;
+import std.native.process.native_args;
+
+// PID of the current process
+func get_pid(): int {
+    return native_get_pid();
+}
+
+// Starts `name`, returns its PID (0 on error)
+func spawn(name: string): int {
+    return native_spawn(name);
+}
+
+// Terminates the current process.
+func exit(code: int): void {
+    native_exit(code);
+}
+
+// Blocks until `pid` exits, returns its code (-1 if not a child)
+func waitpid(pid: int): int {
+    return native_waitpid(pid);
+}
+
+// Argument string the process was spawned with ("" if none)
+func args(): string {
+    return native_args();
+}

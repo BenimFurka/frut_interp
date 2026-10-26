@@ -1,0 +1,108 @@
+// Filesystem access: value handles bound to a path, plus directory helpers
+import std.native.fs.*;
+import std.vec.*;
+import std.strings.len;
+import std.strings.char_at;
+import std.strings.char_code;
+import std.strings.substring;
+
+// A value bound to a path (not an open descriptor); every call re-opens it
+type File {
+    path: string;
+}
+
+// A directory entry. `name` is local to the directory
+type Entry {
+    name: string;
+    size: int;
+    is_dir: bool;
+}
+
+ext File {
+    // Binds a handle to a path. `write` creates the file if needed
+    func at(path: string): File {
+        return File { path: path };
+    }
+
+    // Whole file as a string. Error if it does not exist
+    func read(self: File): string {
+        return native_fs_read(self.path);
+    }
+
+    // Writes data (creating or truncating). false on failure.
+    func write(self: File, data: string): bool {
+        return native_fs_write(self.path, data);
+    }
+
+    // Reads up to `max_len` bytes, byte-exact
+    func read_b(self: File, max_len: int): bytes {
+        return native_fs_read_b(self.path, max_len);
+    }
+
+    // Writes bytes, byte-exact. false on failure.
+    func write_b(self: File, data: bytes): bool {
+        return native_fs_write_b(self.path, data);
+    }
+}
+
+// Entries of the directory at `path` ("/" = root)
+func list_dir(path: string): Vec<Entry> {
+    var listing: string = native_fs_list_dir(path);
+    var out: Vec<Entry> = Vec.new<Entry>();
+    var n: int = len(listing);
+    var start: int = 0;
+    var i: int = 0;
+    while i < n {
+        if char_code(listing, i) == 10 {
+            if i > start {
+                var name: string = substring(listing, start, i);
+                var full: string = join_path(path, name);
+                out.push(Entry {
+                    name: name,
+                    size: native_fs_size(full),
+                    is_dir: native_fs_is_dir(full),
+                });
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    
+    if n > start {
+        var name: string = substring(listing, start, n);
+        var full: string = join_path(path, name);
+        out.push(Entry {
+            name: name,
+            size: native_fs_size(full),
+            is_dir: native_fs_is_dir(full),
+        });
+    }
+    return out;
+}
+
+// Creates a directory (parents must exist)
+func create_dir(path: string): bool {
+    return native_fs_create_dir(path);
+}
+
+// Removes a file or an empty directory
+func remove(path: string): bool {
+    return native_fs_remove(path);
+}
+
+// Renames/moves; `new` must not exist
+func rename(old: string, new: string): bool {
+    return native_fs_rename(old, new);
+}
+
+// Joins a directory with a local entry name using `/`
+func join_path(dir: string, name: string): string {
+    var n: int = len(dir);
+    if n == 0 {
+        return name;
+    }
+    if char_at(dir, n - 1) == "/" {
+        return dir + name;
+    }
+    return dir + "/" + name;
+}

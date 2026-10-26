@@ -1,22 +1,156 @@
 //! The entry point of the Frut interpreter.
+//!
+//! CLI contract (shared by all Frut backends):
+//!   frut [OPTIONS] [ENTRY]
+//!
+//!   ENTRY                     path to the entry .ft file
+//!                             default: <project>/main.ft
+//!   -p, --project <DIR>       project root; default: ENTRY's directory
+//!   -n, --name <NAME>         this library's import name; default: self
+//!   -l, --lib <NAME>=<PATH>   mount PATH as library NAME (repeatable);
+//!                             std=<PATH> overrides the embedded std
+//!   -f, --format <FORMAT>     output format: text (default) | json
+//!       --no-std              do not mount the standard library
+//!
+//! The standard library is embedded into the binary (see
+//! [`frut_interp::loader::EMBEDDED_STD`]) and mounted as `std` by default.
+//!       --version             print the backend version
+//!   -h, --help
 
 use colored::Colorize;
-use frut_lib::{parse_files, File as FrutFile, ErrorReport, Statement, StatementKind};
 use frut_interp::interpreter::Interpreter;
-use std::env;
-use std::fs;
+use frut_interp::loader::{build_tree, find_std, LibMount, ProjectMount};
+use frut_lib::parse_code;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
-fn display_error(error: &ErrorReport) -> String {
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Parsed CLI options
+struct Options {
+    entry: Option<PathBuf>,
+    project: Option<PathBuf>,
+    name: String,
+    libs: Vec<LibMount>,
+    format: OutputFormat,
+    no_std: bool,
+}
+
+enum OutputFormat {
+    Text,
+    Json,
+}
+
+fn usage() -> String {
+    "usage: frut [-p <dir>] [-n <name>] [-e <file>] [-l <name>=<path>] [-f text|json] [--no-std] <file.ft>".to_string()
+}
+
+fn parse_args(args: &[String]) -> Result<Options, String> {
+    let mut opts = Options {
+        entry: None,
+        project: None,
+        name: "self".to_string(),
+        libs: Vec::new(),
+        format: OutputFormat::Text,
+        no_std: false,
+    };
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{}", usage());
+                std::process::exit(0);
+            }
+            "--version" => {
+                println!("frut {VERSION}");
+                std::process::exit(0);
+            }
+            "-p" | "--project" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err(format!("{arg} requires a value"));
+                };
+                opts.project = Some(PathBuf::from(v));
+            }
+            "-n" | "--name" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err(format!("{arg} requires a value"));
+                };
+                opts.name = v.clone();
+            }
+            "-e" | "--entry" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err(format!("{arg} requires a value"));
+                };
+                if opts.entry.is_some() {
+                    return Err("multiple entry files given".to_string());
+                }
+                opts.entry = Some(PathBuf::from(v));
+            }
+            "-l" | "--lib" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err(format!("{arg} requires a value"));
+                };
+                let Some((name, path)) = v.split_once('=') else {
+                    return Err(format!("--lib expects <NAME>=<PATH>, got `{v}`"));
+                };
+                if name.is_empty() || path.is_empty() {
+                    return Err(format!("--lib expects <NAME>=<PATH>, got `{v}`"));
+                }
+                opts.libs.push(LibMount::new(name, path));
+            }
+            "-f" | "--format" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err(format!("{arg} requires a value"));
+                };
+                opts.format = match v.as_str() {
+                    "text" => OutputFormat::Text,
+                    "json" => OutputFormat::Json,
+                    other => {
+                        return Err(format!(
+                            "unknown output format `{other}` (expected text|json)"
+                        ))
+                    }
+                };
+            }
+            "--no-std" => opts.no_std = true,
+            other => {
+                if other.starts_with('-') {
+                    return Err(format!("unknown option `{other}`"));
+                }
+                if opts.entry.is_some() {
+                    return Err("multiple entry files given".to_string());
+                }
+                opts.entry = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+
+    Ok(opts)
+}
+
+fn display_error(error: &frut_lib::ErrorReport) -> String {
     use std::fmt::Write;
-    
+
     let mut result = String::with_capacity(256);
     let offset = error.position.column.saturating_sub(1);
-    let span = if error.position.length > 0 { error.position.length } else { 1 };
-    
+    let span = if error.position.length > 0 {
+        error.position.length
+    } else {
+        1
+    };
+
     let _ = write!(
         result,
-        "{} {}\n {} {}:{}:{}\n   {}\n{:2} {}{}\n   {}{}{}",
-        format!("[E{:04}]", error.code.clone() as u32).red().bold(),
+        "{} {}\n {} {}:{}:{}\n   {}\n{} {}{}\n   {}{}{} {}",
+        format!("[E{:04}]", error.code.as_u32()).red().bold(),
         error.error_type.to_string().bold(),
         "-->".blue().bold(),
         error.position.file,
@@ -28,175 +162,204 @@ fn display_error(error: &ErrorReport) -> String {
         error.code_snippet,
         "| ".blue().bold(),
         " ".repeat(offset),
-        format!("{} {}", "^".repeat(span).red().bold(), error.message.red().bold())
+        "^".repeat(span).red().bold(),
+        error.message.red().bold()
     );
-    
+
     result
 }
 
-/// The entry point of the Frut interpreter.
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        println!("{}: `frut <path_to_file.ft>`", "usage".bold().yellow());
-        return;
+/// Escape a string for embedding into a JSON string literal
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
     }
+    out
+}
 
-    let file_path = &args[1];
-
-    if !file_path.ends_with(".ft") {
-        println!(
-            "{}: The file must have an extension .ft",
-            "error".bold().red()
-        );
-        return;
+/// Render a batch of errors as a JSON object (for fpm/LSP/CI consumption)
+fn errors_to_json(errors: &[frut_lib::ErrorReport]) -> String {
+    let mut out = String::from("{\"success\":false,\"errors\":[");
+    for (i, e) in errors.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"code\":{},\"type\":\"{}\",\"message\":\"{}\",\"file\":\"{}\",\"line\":{},\"column\":{},\"snippet\":\"{}\"}}",
+            e.code.as_u32(),
+            json_escape(&e.error_type.to_string()),
+            json_escape(&e.message),
+            json_escape(&e.position.file),
+            e.position.line,
+            e.position.column,
+            json_escape(&e.code_snippet),
+        ));
     }
+    out.push_str("]}");
+    out
+}
 
-    let content = match fs::read_to_string(file_path) {
-        Ok(str) => str,
-        Err(_) => {
-            println!(
-                "{}: Failed to read file `{}`",
-                "error".bold().red(),
-                file_path
-            );
-            return;
+/// Report errors according to the selected output format and exit
+fn report_errors(
+    format: &OutputFormat,
+    errors: &[frut_lib::ErrorReport],
+    header: &str,
+) -> ExitCode {
+    match format {
+        OutputFormat::Text => {
+            for error in errors {
+                println!("{}", display_error(error));
+            }
+            println!("{}", header.bold().red());
+        }
+        OutputFormat::Json => {
+            println!("{}", errors_to_json(errors));
+        }
+    }
+    ExitCode::FAILURE
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let opts = match parse_args(&args) {
+        Ok(opts) => opts,
+        Err(msg) => {
+            eprintln!("{}: {}", "error".bold().red(), msg);
+            eprintln!("{}", usage());
+            return ExitCode::from(2);
         }
     };
 
-    let files: Vec<FrutFile> = vec![FrutFile { path: file_path.to_string(), code: content.clone(), ast: None }];
-
-    let project_result = parse_files(files);
-    if !project_result.errors.is_empty() {
-        for error in &project_result.errors.errors {
-            println!("{}", display_error(error));
+    let entry = match opts
+        .entry
+        .clone()
+        .or_else(|| opts.project.as_ref().map(|p| p.join("main.ft")))
+    {
+        Some(entry) => entry,
+        None => {
+            eprintln!("{}: no entry file given", "error".bold().red());
+            eprintln!("{}", usage());
+            return ExitCode::from(2);
         }
-        println!(
-            "{}: could not parse project due to {} previous error{}",
-            "error".red().bold(),
-            project_result.errors.len(),
-            if project_result.errors.len() > 1 { "s" } else { "" }
+    };
+    let entry = if !entry.is_absolute() {
+        if let Some(project) = &opts.project {
+            project.join(entry)
+        } else {
+            entry
+        }
+    } else {
+        entry
+    };
+
+    let project_dir = opts
+        .project
+        .clone()
+        .or_else(|| entry.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    if entry.extension().map(|e| e != "ft").unwrap_or(true) {
+        eprintln!(
+            "{}: The file must have an extension .ft",
+            "error".bold().red()
         );
-        return;
+        return ExitCode::from(2);
     }
 
-    let mut project = project_result.project;
-    
-    for file in &mut project.files {
-        let mut analyzer = Interpreter::create_semantic_analyzer(file.path.clone(), file.code.clone());
-        if let Some(ast) = &file.ast {
-            for stmt in ast.iter() {
-                if let StatementKind::Import { path, kind } = &stmt.kind {
-                    if frut_std::has_native_module(path) {
-                        if let Some(sigs) = frut_std::signatures_for(path) {
-                            match kind {
-                                frut_lib::ImportKind::Wildcard => {
-                                    for fs in sigs.iter() {
-                                        let _ = analyzer.predeclare_function(fs.name.clone(), fs.params.clone(), fs.ret.clone());
-                                    }
-                                }
-                                frut_lib::ImportKind::Single(name) => {
-                                    for fs in sigs.iter().filter(|fs| &fs.name == name) {
-                                        let _ = analyzer.predeclare_function(fs.name.clone(), fs.params.clone(), fs.ret.clone());
-                                    }
-                                }
-                                frut_lib::ImportKind::Group(names) => {
-                                    for n in names.iter() {
-                                        for fs in sigs.iter().filter(|fs| &fs.name == n) {
-                                            let _ = analyzer.predeclare_function(fs.name.clone(), fs.params.clone(), fs.ret.clone());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if let Err(semantic_errors) = analyzer.analyze(ast) {
-                println!("{}: Semantic analysis failed with {} error{}:",
-                    "error".red().bold(),
-                    semantic_errors.len(),
-                    if semantic_errors.len() > 1 { "s" } else { "" }
-                );
-                for error in &semantic_errors.errors {
-                    println!("{}", display_error(error));
-                }
-                return;
-            }
-        }
-    }
-
-    let mut combined: Vec<Statement> = Vec::new();
-    
-    for f in project.files.iter() {
-        if let Some(ast) = &f.ast {
-            if f.path == file_path.as_str() {
-                combined.extend(ast.iter().cloned());
-            } else {
-                if !f.path.starts_with("std/") && !f.path.contains("/std/") {
-                    for stmt in ast.iter() {
-                        if matches!(&stmt.kind, StatementKind::VariableDeclaration { .. } | StatementKind::FunctionDeclaration { .. }) {
-                            combined.insert(
-                                combined.iter().position(|s| !matches!(s.kind, StatementKind::VariableDeclaration { .. } | StatementKind::FunctionDeclaration { .. })).unwrap_or(combined.len()),
-                                stmt.clone()
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut interpreter = Interpreter::new(file_path.to_string(), content.clone());
-
-    let mut imported_native: std::collections::BTreeMap<String, Option<std::collections::BTreeSet<String>>> = std::collections::BTreeMap::new();
-    for f in project.files.iter() {
-        if let Some(ast) = &f.ast {
-            for stmt in ast.iter() {
-                if let StatementKind::Import { path, kind } = &stmt.kind {
-                    if frut_std::has_native_module(path) {
-                        let key = path.join("/");
-                        match kind {
-                            frut_lib::ImportKind::Wildcard => {
-                                imported_native.insert(key, None);
-                            }
-                            frut_lib::ImportKind::Single(name) => {
-                                let entry = imported_native.entry(key).or_insert_with(|| Some(std::collections::BTreeSet::new()));
-                                if let Some(set) = entry.as_mut() { set.insert(name.clone()); } else { /* wildcard already present */ }
-                            }
-                            frut_lib::ImportKind::Group(names) => {
-                                let entry = imported_native.entry(key).or_insert_with(|| Some(std::collections::BTreeSet::new()));
-                                if let Some(set) = entry.as_mut() {
-                                    for n in names { set.insert(n.clone()); }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if !imported_native.is_empty() {
-        let modules: Vec<(String, Option<Vec<String>>)> = imported_native.into_iter().map(|(k, opt)| {
-            match opt {
-                None => (k, None),
-                Some(set) => (k, Some(set.into_iter().collect())),
-            }
-        }).collect();
-        frut_std::register_modules(interpreter.environment_mut(), &modules);
-    }
-    match interpreter.interpret(&combined) {
-        Ok(_) => {
-            println!(
-                "{}: Successfully executed `{}`",
-                "info".bold().green(),
-                file_path
+    let content = match std::fs::read_to_string(&entry) {
+        Ok(str) => str,
+        Err(_) => {
+            eprintln!(
+                "{}: Failed to read file `{}`",
+                "error".bold().red(),
+                entry.display()
             );
+            return ExitCode::from(2);
         }
-        Err(runtime_error) => {
-            println!("{}", display_error(&runtime_error));
+    };
+
+    let entry_display = entry.to_string_lossy().to_string();
+
+    let parse_result = parse_code(&content, entry_display.clone());
+    if !parse_result.is_success() {
+        return report_errors(
+            &opts.format,
+            &parse_result.errors.errors,
+            &format!(
+                "error: could not parse file due to {} previous error{}",
+                parse_result.errors.len(),
+                if parse_result.errors.len() > 1 {
+                    "s"
+                } else {
+                    ""
+                }
+            ),
+        );
+    }
+
+    let mut libs: Vec<LibMount> = opts.libs.clone();
+    let has_std_mount = libs.iter().any(|l| l.name == "std");
+    if !opts.no_std && !has_std_mount {
+        match find_std(Some(&project_dir)) {
+            Some(std_path) => libs.push(LibMount::new("std", std_path)),
+            None => libs.push(LibMount::embedded_std()),
         }
     }
-    return;
+
+    let project_mount = ProjectMount::Dir(project_dir.clone());
+    let tree = build_tree(project_mount, &opts.name, &libs);
+    if !tree.errors.is_empty() {
+        return report_errors(
+            &opts.format,
+            &tree.errors.errors,
+            "error: could not load project sources",
+        );
+    }
+
+    let mut interpreter = Interpreter::with_tree(entry_display.clone(), content.clone(), tree.root);
+
+    let mut analyzer = Interpreter::create_semantic_analyzer_with_module(
+        entry_display.clone(),
+        content.clone(),
+        interpreter.get_module(),
+    );
+    if let Err(semantic_errors) = analyzer.analyze(&parse_result.statements) {
+        return report_errors(
+            &opts.format,
+            &semantic_errors.errors,
+            &format!(
+                "error: Semantic analysis failed with {} error{}",
+                semantic_errors.len(),
+                if semantic_errors.len() > 1 { "s" } else { "" }
+            ),
+        );
+    }
+
+    match interpreter.interpret(&parse_result.statements) {
+        Ok(_) => {
+            if matches!(opts.format, OutputFormat::Json) {
+                println!("{{\"success\":true,\"errors\":[]}}");
+            } else {
+                println!(
+                    "{}: Successfully executed `{}`",
+                    "info".bold().green(),
+                    entry_display
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(runtime_error) => report_errors(&opts.format, &[runtime_error], "error: runtime error"),
+    }
 }

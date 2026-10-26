@@ -1,0 +1,32 @@
+// Console output, and input where a readable stdin exists
+import std.native.io.native_write_stdout;
+import std.native.io.native_write_stderr;
+import std.native.io.native_read_stdin;
+
+// Writes `value` to stdout, no trailing newline
+func print(value: string): void {
+    native_write_stdout(value);
+}
+
+// Writes `value` followed by a newline
+func println(value: string): void {
+    native_write_stdout(value);
+    native_write_stdout("\n");
+}
+
+// Writes `value` to stderr, no trailing newline
+func eprint(value: string): void {
+    native_write_stderr(value);
+}
+
+// Writes `value` followed by a newline to stderr
+func eprintln(value: string): void {
+    native_write_stderr(value);
+    native_write_stderr("\n");
+}
+
+// Writes `prompt`, then reads one line from stdin
+func input(prompt: string): string {
+    native_write_stdout(prompt);
+    return native_read_stdin();
+}

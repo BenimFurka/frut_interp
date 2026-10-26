@@ -1,0 +1,3 @@
+// Low-level time primitives (host-provided)
+foreign func native_sleep(ms: int): void;
+foreign func native_get_ticks(): int;

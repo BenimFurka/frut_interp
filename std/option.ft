@@ -1,0 +1,14 @@
+// Generic optional value
+//
+//   import std.option.*;
+//
+//   var some_int: Option<int> = Option.Some(42);
+//   var none_int: Option<int> = Option.None;
+//
+//   if some_int.is_Some() { ... }
+//   if none_int.is_None() { ... }
+
+enum Option<T> {
+    Some(T),
+    None,
+}

@@ -1,0 +1,9 @@
+import std.io.*;
+import std.math.*;
+
+println(abs(-5));
+println(min(3, 5));
+println(max(3, 5));
+println(abs(-3.5));
+println(min(2.5, 1.5));
+println(max(2.5, 1.5));

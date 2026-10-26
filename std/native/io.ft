@@ -1,0 +1,4 @@
+// Low-level console I/O primitives (host-provided)
+foreign func native_write_stdout(data: string): void;
+foreign func native_write_stderr(data: string): void;
+foreign func native_read_stdin(): string;

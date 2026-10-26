@@ -1,0 +1,53 @@
+// Raw byte buffers and bridges to `string` / `[int]`.
+//
+// These conversions are byte-exact (no UTF-8 lossy step). File I/O lives in
+// std.fs
+import std.native.bytes.bytes_from_string;
+import std.native.bytes.string_from_bytes;
+import std.native.bytes.bytes_from_array;
+
+// Bytes of `s`
+func bytes_of(s: string): bytes {
+    return bytes_from_string(s);
+}
+
+// String from `b`
+func string_of(b: bytes): string {
+    return string_from_bytes(b);
+}
+
+// One-byte buffer; `x` in 0..255
+func byte_of(x: int): bytes {
+    var a = [x];
+    return bytes_from_array(a);
+}
+
+// Empty buffer
+func bytes_empty(): bytes {
+    return bytes_of("");
+}
+
+// Position of `sub` at/after `from`, or -1
+func bytes_find(b: bytes, sub: bytes, from: int): int {
+    var n: int = sub.len();
+    if n == 0 {
+        return from;
+    }
+    var i: int = from;
+    while i + n <= b.len() {
+        var j: int = 0;
+        var same: bool = true;
+        while j < n {
+            if b.at(i + j) != sub.at(j) {
+                same = false;
+                break;
+            }
+            j = j + 1;
+        }
+        if same {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}

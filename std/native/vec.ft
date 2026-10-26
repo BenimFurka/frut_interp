@@ -1,0 +1,12 @@
+// Low-level dynamic vectors (host-provided). Elements are stored untyped;
+// the generic parameter `T` of std.vec is erased at runtime
+foreign func native_vec_new(): int;
+foreign func native_vec_push<T>(h: int, v: T): bool;
+foreign func native_vec_get<T>(h: int, i: int): T;
+foreign func native_vec_set<T>(h: int, i: int, v: T): bool;
+foreign func native_vec_len(h: int): int;
+foreign func native_vec_pop<T>(h: int): T;
+foreign func native_vec_clear(h: int): bool;
+foreign func native_vec_free(h: int): bool;
+foreign func native_vec_insert<T>(h: int, i: int, v: T): bool;
+foreign func native_vec_remove_at(h: int, i: int): bool;

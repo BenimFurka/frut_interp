@@ -1,0 +1,31 @@
+// Integer / floating point helpers
+import std.native.math.native_abs;
+import std.native.math.native_min;
+import std.native.math.native_max;
+import std.native.math.native_pow;
+import std.native.math.native_sqrt;
+
+// Absolute value of an int
+func abs(x: int): int {
+    return native_abs(x);
+}
+
+// Smaller of two ints
+func min(a: int, b: int): int {
+    return native_min(a, b);
+}
+
+// Larger of two ints
+func max(a: int, b: int): int {
+    return native_max(a, b);
+}
+
+// `base` raised to `exp` (exp >= 0)
+func pow(base: int, exp: int): int {
+    return native_pow(base, exp);
+}
+
+// Square root of a double
+func sqrt(x: double): double {
+    return native_sqrt(x);
+}

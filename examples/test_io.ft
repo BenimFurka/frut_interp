@@ -1,0 +1,6 @@
+import std.io.*;
+
+println("hello");
+print("world");
+println(123);
+println(true);
