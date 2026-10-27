@@ -344,7 +344,7 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
             if i < 0 || i as usize >= bytes.len() {
                 return Err(format!("char_at: index {i} out of range"));
             }
-            
+
             Ok(String::from_utf8_lossy(&bytes[i as usize..i as usize + 1]).into_owned())
         },
     ));
@@ -365,7 +365,11 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         "std.native.strings",
         "native_str_substring",
         Type::String,
-        &[("s", Type::String), ("start", Type::Int), ("end", Type::Int)],
+        &[
+            ("s", Type::String),
+            ("start", Type::Int),
+            ("end", Type::Int),
+        ],
         |(s, start, end): (String, i64, i64)| {
             let bytes = s.as_bytes();
             let n = bytes.len() as i64;
@@ -392,11 +396,9 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         "native_str_index_of",
         Type::Int,
         &[("s", Type::String), ("sub", Type::String)],
-        |(s, sub): (String, String)| {
-            match s.find(&sub) {
-                Some(pos) => Ok(pos as i64),
-                None => Ok(-1),
-            }
+        |(s, sub): (String, String)| match s.find(&sub) {
+            Some(pos) => Ok(pos as i64),
+            None => Ok(-1),
         },
     ));
 
@@ -569,7 +571,10 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
                 }
                 Ok(out)
             }
-            other => Err(format!("bytes_from_array: expected [int], got {}", other.get_type())),
+            other => Err(format!(
+                "bytes_from_array: expected [int], got {}",
+                other.get_type()
+            )),
         },
     ));
     registry.register(native(
@@ -594,9 +599,7 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         "native_fs_read",
         Type::String,
         &[("path", Type::String)],
-        |path: String| {
-            std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
-        },
+        |path: String| std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}")),
     ));
     registry.register(native(
         "std.native.fs",
@@ -613,7 +616,11 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         |(path, max_len): (String, i64)| {
             let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
             let limit = max_len.max(0) as usize;
-            Ok(if limit == 0 { data } else { data[..data.len().min(limit)].to_vec() })
+            Ok(if limit == 0 {
+                data
+            } else {
+                data[..data.len().min(limit)].to_vec()
+            })
         },
     ));
     registry.register(native(
@@ -684,7 +691,9 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         Type::Int,
         &[("path", Type::String)],
         |path: String| {
-            Ok(std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0))
+            Ok(std::fs::metadata(&path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(0))
         },
     ));
 
@@ -728,11 +737,9 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         "native_spawn",
         Type::Int,
         &[("name", Type::String)],
-        |name: String| {
-            match std::process::Command::new(&name).spawn() {
-                Ok(child) => Ok(child.id() as i64),
-                Err(_) => Ok(0),
-            }
+        |name: String| match std::process::Command::new(&name).spawn() {
+            Ok(child) => Ok(child.id() as i64),
+            Err(_) => Ok(0),
         },
     ));
     registry.register(native(
@@ -749,9 +756,7 @@ pub fn register_host_natives(registry: &mut frut_lib::NativeRegistry) {
         "native_waitpid",
         Type::Int,
         &[("pid", Type::Int)],
-        |_pid: i64| {
-            Ok(-1)
-        },
+        |_pid: i64| Ok(-1),
     ));
     registry.register(native(
         "std.native.process",

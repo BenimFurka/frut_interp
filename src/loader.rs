@@ -248,6 +248,54 @@ fn collect_parse_result(
     }
 }
 
+/// Unpack [`EMBEDDED_STD`] into a per-user cache directory and return its
+/// path.
+pub fn unpack_embedded_std() -> Result<PathBuf, String> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".cache"))
+        })
+        .or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from))
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("frut").join("std").join(format!(
+        "{}-{}",
+        env!("CARGO_PKG_VERSION"),
+        EMBEDDED_STD.len()
+    ));
+    if dir.join("io.ft").is_file() {
+        return Ok(dir);
+    }
+
+    let staging = dir.with_extension(format!("tmp-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&staging);
+    for (qualified, source) in EMBEDDED_STD {
+        let path = staging.join(format!("{}.ft", qualified.replace('.', "/")));
+        let write = path
+            .parent()
+            .map(|parent| fs::create_dir_all(parent))
+            .unwrap_or(Ok(()))
+            .and_then(|()| fs::write(&path, source));
+        if let Err(e) = write {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("cannot write {}: {}", path.display(), e));
+        }
+    }
+    match fs::rename(&staging, &dir) {
+        Ok(()) => Ok(dir),
+        Err(_) if dir.join("io.ft").is_file() => {
+            let _ = fs::remove_dir_all(&staging);
+            Ok(dir)
+        }
+        Err(e) => {
+            let _ = fs::remove_dir_all(&staging);
+            Err(format!("cannot unpack std into {}: {}", dir.display(), e))
+        }
+    }
+}
+
 /// Locate an *external* standard library directory to override the embedded
 /// one
 pub fn find_std(_start: Option<&Path>) -> Option<PathBuf> {

@@ -11,15 +11,17 @@
 //!                             std=<PATH> overrides the embedded std
 //!   -f, --format <FORMAT>     output format: text (default) | json
 //!       --no-std              do not mount the standard library
+//!       --print-std           unpack the embedded std to disk and print its
+//!                             path (for tools such as frut_lsp / fpm)
+//!       --version             print the backend version
+//!   -h, --help
 //!
 //! The standard library is embedded into the binary (see
 //! [`frut_interp::loader::EMBEDDED_STD`]) and mounted as `std` by default.
-//!       --version             print the backend version
-//!   -h, --help
 
 use colored::Colorize;
 use frut_interp::interpreter::Interpreter;
-use frut_interp::loader::{build_tree, find_std, LibMount, ProjectMount};
+use frut_interp::loader::{build_tree, find_std, unpack_embedded_std, LibMount, ProjectMount};
 use frut_lib::parse_code;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,7 +44,7 @@ enum OutputFormat {
 }
 
 fn usage() -> String {
-    "usage: frut [-p <dir>] [-n <name>] [-e <file>] [-l <name>=<path>] [-f text|json] [--no-std] <file.ft>".to_string()
+    "usage: frut [-p <dir>] [-n <name>] [-e <file>] [-l <name>=<path>] [-f text|json] [--no-std] [--print-std] <file.ft>".to_string()
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -232,6 +234,21 @@ fn report_errors(
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // `--print-std` is handled before entry resolution: it must work without
+    // a project or an entry file.
+    if args.iter().any(|arg| arg == "--print-std") {
+        return match unpack_embedded_std() {
+            Ok(path) => {
+                println!("{}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{}: {}", "error".bold().red(), message);
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     let opts = match parse_args(&args) {
         Ok(opts) => opts,

@@ -303,7 +303,7 @@ impl<'m> Interpreter {
                         self.environment.is_interface(name)
                     }
                 } else if expected_type == Type::Any {
-                     true
+                    true
                 } else if value.get_type() == expected_type {
                     true
                 } else if let Value::Enum { type_name, .. } = &value {
@@ -897,9 +897,7 @@ impl<'m> Interpreter {
                         let _ = return_type;
                         Err(self.create_error(
                             frut_lib::ErrorType::UndefinedVariable(name.clone()),
-                            format!(
-                                "Native function '{name}' from '{module}' is not registered"
-                            ),
+                            format!("Native function '{name}' from '{module}' is not registered"),
                             pos,
                         ))
                     }
@@ -1469,9 +1467,7 @@ impl<'m> Interpreter {
                                     .join(", ");
                                 format!("({inner})")
                             };
-                            Ok(Value::String(format!(
-                                "{type_name}.{variant}{payload_str}"
-                            )))
+                            Ok(Value::String(format!("{type_name}.{variant}{payload_str}")))
                         }
                         Value::Tuple(elements) => {
                             let inner = elements
