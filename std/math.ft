@@ -29,3 +29,96 @@ func pow(base: int, exp: int): int {
 func sqrt(x: double): double {
     return native_sqrt(x);
 }
+
+// Round down
+func floor(a: double): double {
+    var b = a as int;
+    var f = b as double;
+    if f > a {
+        b = b - 1;
+    }
+    return b as double;
+}
+
+// Round up
+func ceil(a: double): double {
+    var b = a as int;
+    if (b as double) < a {
+        b = b + 1;
+    }
+    return b as double;
+}
+
+// Truncate toward zero
+func trunc(x: double): double {
+    return (x as int) as double;
+}
+
+// Round half away from zero
+func round(x: double): double {
+    if x >= 0.0 {
+        return floor(x + 0.5);
+    }
+    return ceil(x - 0.5);
+}
+
+// Fractional part, floor-based: fract(-1.2) == 0.8
+func fract(x: double): double {
+    return x - floor(x) as double;
+}
+
+// -1.0, 0.0 or 1.0
+func sign(x: double): double {
+    if x > 0.0 {
+        return 1.0;
+    }
+    if x < 0.0 {
+        return -1.0;
+    }
+    return 0.0;
+}
+
+func clamp(x: double, lo: double, hi: double): double {
+    if x < lo {
+        return lo;
+    }
+    if x > hi {
+        return hi;
+    }
+    return x;
+}
+
+func clamp01(x: double): double {
+    return clamp(x, 0.0, 1.0);
+}
+
+func lerp(a: double, b: double, t: double): double {
+    return a + (b - a) * t;
+}
+
+func lerp_clamped(a: double, b: double, t: double): double {
+    return lerp(a, b, clamp01(t));
+}
+
+func inverse_lerp(a: double, b: double, v: double): double {
+    if a == b {
+        return 0.0;
+    }
+    return (v - a) / (b - a);
+}
+
+func remap(v: double, in_min: double, in_max: double, out_min: double, out_max: double): double {
+    return lerp(out_min, out_max, inverse_lerp(in_min, in_max, v));
+}
+
+func smoothstep(edge0: double, edge1: double, x: double): double {
+    var t: double = clamp01(inverse_lerp(edge0, edge1, x));
+    return t * t * (3.0 - 2.0 * t);
+}
+
+func step(edge: double, x: double): double {
+    if x < edge {
+        return 0.0;
+    }
+    return 1.0;
+}
