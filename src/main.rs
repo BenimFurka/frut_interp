@@ -11,6 +11,8 @@
 //!                             std=<PATH> overrides the embedded std
 //!   -f, --format <FORMAT>     output format: text (default) | json
 //!       --no-std              do not mount the standard library
+//!       --analyze-only        perform parsing and semantic analysis only,
+//!                             output symbols and definitions (for LSP)
 //!       --print-std           unpack the embedded std to disk and print its
 //!                             path (for tools such as frut_lsp / fpm)
 //!       --version             print the backend version
@@ -36,6 +38,7 @@ struct Options {
     libs: Vec<LibMount>,
     format: OutputFormat,
     no_std: bool,
+    analyze_only: bool,
 }
 
 enum OutputFormat {
@@ -44,7 +47,7 @@ enum OutputFormat {
 }
 
 fn usage() -> String {
-    "usage: frut [-p <dir>] [-n <name>] [-e <file>] [-l <name>=<path>] [-f text|json] [--no-std] [--print-std] <file.ft>".to_string()
+    "usage: frut [-p <dir>] [-n <name>] [-e <file>] [-l <name>=<path>] [-f text|json] [--no-std] [--analyze-only] [--print-std] <file.ft>".to_string()
 }
 
 fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -55,6 +58,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         libs: Vec::new(),
         format: OutputFormat::Text,
         no_std: false,
+        analyze_only: false,
     };
 
     let mut i = 0;
@@ -122,6 +126,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                 };
             }
             "--no-std" => opts.no_std = true,
+            "--analyze-only" => opts.analyze_only = true,
             other => {
                 if other.starts_with('-') {
                     return Err(format!("unknown option `{other}`"));
@@ -206,6 +211,137 @@ fn errors_to_json(errors: &[frut_lib::ErrorReport]) -> String {
             e.position.line,
             e.position.column,
             json_escape(&e.code_snippet),
+        ));
+    }
+    out.push_str("]}");
+    out
+}
+
+/// Represents a symbol for LSP consumption
+#[derive(Debug)]
+struct SymbolInfo {
+    name: String,
+    kind: String,  // "function", "variable", "type"
+    file: String,
+    line: usize,
+    column: usize,
+}
+
+/// Represents a definition location for LSP goto-definition
+#[derive(Debug)]
+struct DefinitionInfo {
+    name: String,
+    file: String,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+}
+
+/// Extract symbols from AST for LSP
+fn extract_symbols(ast: &[frut_lib::ast::Statement], file: &str) -> Vec<SymbolInfo> {
+    use frut_lib::ast::StatementKind;
+    let mut symbols = Vec::new();
+    for stmt in ast {
+        let (name, kind) = match &stmt.kind {
+            StatementKind::FunctionDeclaration { name, .. } => (name, "function"),
+            StatementKind::VariableDeclaration { name, .. } => (name, "variable"),
+            StatementKind::TypeDeclaration { name, .. } => (name, "type"),
+            _ => continue,
+        };
+        symbols.push(SymbolInfo {
+            name: name.clone(),
+            kind: kind.to_string(),
+            file: file.to_string(),
+            line: stmt.pos.line,
+            column: stmt.pos.column,
+        });
+    }
+    symbols
+}
+
+/// Extract definitions from AST for LSP goto-definition
+fn extract_definitions(ast: &[frut_lib::ast::Statement], file: &str) -> Vec<DefinitionInfo> {
+    use frut_lib::ast::StatementKind;
+    let mut defs = Vec::new();
+    for stmt in ast {
+        let name = match &stmt.kind {
+            StatementKind::FunctionDeclaration { name, .. } => name,
+            StatementKind::VariableDeclaration { name, .. } => name,
+            StatementKind::TypeDeclaration { name, .. } => name,
+            _ => continue,
+        };
+        let start_line = stmt.pos.line.saturating_sub(1);
+        let start_column = stmt.pos.column.saturating_sub(1);
+        let end_line = start_line;
+        let end_column = if stmt.pos.length > 0 {
+            start_column + stmt.pos.length
+        } else {
+            start_column + name.len()
+        };
+        defs.push(DefinitionInfo {
+            name: name.clone(),
+            file: file.to_string(),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        });
+    }
+    defs
+}
+
+/// Render analysis results as JSON for LSP consumption
+fn analysis_to_json(
+    errors: &[frut_lib::ErrorReport],
+    symbols: &[SymbolInfo],
+    definitions: &[DefinitionInfo],
+) -> String {
+    let mut out = String::from("{\"success\":");
+    out.push_str(if errors.is_empty() { "true" } else { "false" });
+    out.push_str(",\"errors\":[");
+    for (i, e) in errors.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"code\":{},\"type\":\"{}\",\"message\":\"{}\",\"file\":\"{}\",\"line\":{},\"column\":{},\"snippet\":\"{}\"}}",
+            e.code.as_u32(),
+            json_escape(&e.error_type.to_string()),
+            json_escape(&e.message),
+            json_escape(&e.position.file),
+            e.position.line,
+            e.position.column,
+            json_escape(&e.code_snippet),
+        ));
+    }
+    out.push_str("],\"symbols\":[");
+    for (i, s) in symbols.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"name\":\"{}\",\"kind\":\"{}\",\"file\":\"{}\",\"line\":{},\"column\":{}}}",
+            json_escape(&s.name),
+            json_escape(&s.kind),
+            json_escape(&s.file),
+            s.line,
+            s.column,
+        ));
+    }
+    out.push_str("],\"definitions\":[");
+    for (i, d) in definitions.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"name\":\"{}\",\"file\":\"{}\",\"start_line\":{},\"start_column\":{},\"end_line\":{},\"end_column\":{}}}",
+            json_escape(&d.name),
+            json_escape(&d.file),
+            d.start_line,
+            d.start_column,
+            d.end_line,
+            d.end_column,
         ));
     }
     out.push_str("]}");
@@ -345,6 +481,8 @@ fn main() -> ExitCode {
         );
     }
 
+    let root_clone = tree.root.clone();
+
     let mut interpreter = Interpreter::with_tree(entry_display.clone(), content.clone(), tree.root);
 
     let mut analyzer = Interpreter::create_semantic_analyzer_with_module(
@@ -352,7 +490,35 @@ fn main() -> ExitCode {
         content.clone(),
         interpreter.get_module(),
     );
-    if let Err(semantic_errors) = analyzer.analyze(&parse_result.statements) {
+    let semantic_result = analyzer.analyze(&parse_result.statements);
+    let all_errors: Vec<frut_lib::ErrorReport> = if let Err(ref semantic_errors) = semantic_result {
+        parse_result.errors.errors.iter().chain(semantic_errors.errors.iter()).cloned().collect()
+    } else {
+        parse_result.errors.errors.clone()
+    };
+
+    if opts.analyze_only {
+        let symbols = extract_symbols(&parse_result.statements, &entry_display);
+        let definitions = extract_definitions(&parse_result.statements, &entry_display);
+        let mut all_symbols = symbols;
+        let mut all_definitions = definitions;
+        for file in &root_clone.files {
+            if file.name != entry_display {
+                if let Some(ast) = &file.ast {
+                    all_symbols.extend(extract_symbols(ast, &file.name));
+                    all_definitions.extend(extract_definitions(ast, &file.name));
+                }
+            }
+        }
+        println!("{}", analysis_to_json(&all_errors, &all_symbols, &all_definitions));
+        return if all_errors.is_empty() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
+
+    if let Err(semantic_errors) = semantic_result {
         return report_errors(
             &opts.format,
             &semantic_errors.errors,
