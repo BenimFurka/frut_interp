@@ -3,7 +3,7 @@
 //! Executes parsed AST nodes and produces runtime values.
 #![allow(clippy::result_large_err)]
 
-use frut_lib::ast::{Expression, ExpressionKind, Statement, StatementKind};
+use frut_lib::ast::{BinaryOperator, Expression, ExpressionKind, Statement, StatementKind};
 use frut_lib::resolver::{ImportResolver, ResolvedImport};
 use frut_lib::types::Type;
 use frut_lib::value::{RuntimeEnvironment, Value};
@@ -520,6 +520,367 @@ impl<'m> Interpreter {
                     _ => InterpreterResult::Err(self.create_error(
                         frut_lib::ErrorType::RuntimeError,
                         "Invalid assignment target".to_string(),
+                        &statement.pos,
+                    )),
+                }
+            }
+            StatementKind::CompoundAssignment {
+                target,
+                operator,
+                value,
+            } => {
+                let rhs = match self.interpret_expression(value) {
+                    Ok(v) => v,
+                    Err(e) => return InterpreterResult::Err(e),
+                };
+
+                let lhs = match &target.kind {
+                    ExpressionKind::Variable(name) => {
+                        match self.environment.get_variable(name) {
+                            Some(v) => v.clone(),
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    format!("Cannot compound assign to undefined variable '{}'", name),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    ExpressionKind::MemberAccess { object, member } => {
+                        let obj_value = match self.interpret_expression(object) {
+                            Ok(v) => v,
+                            Err(e) => return InterpreterResult::Err(e),
+                        };
+                        if let Value::Struct { fields, .. } = &obj_value {
+                            if let Some(field_value) = fields.get(member) {
+                                field_value.clone()
+                            } else {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    format!("Struct has no field '{}'", member),
+                                    &statement.pos,
+                                ));
+                            }
+                        } else {
+                            return InterpreterResult::Err(self.create_error(
+                                frut_lib::ErrorType::TypeError,
+                                "Cannot compound assign to member of non-struct".to_string(),
+                                &statement.pos,
+                            ));
+                        }
+                    }
+                    ExpressionKind::Index { object, index } => {
+                        let arr_value = match self.interpret_expression(object) {
+                            Ok(v) => v,
+                            Err(e) => return InterpreterResult::Err(e),
+                        };
+                        let idx_value = match self.interpret_expression(index) {
+                            Ok(Value::Int(i)) => i,
+                            Ok(_) => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    "Array index must be an integer".to_string(),
+                                    &index.pos,
+                                ));
+                            }
+                            Err(e) => return InterpreterResult::Err(e),
+                        };
+                        if let Value::Array { elements, .. } = &arr_value {
+                            if idx_value < 0 || idx_value as usize >= elements.len() {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::IndexOutOfBounds,
+                                    format!(
+                                        "Index {} out of bounds for array of length {}",
+                                        idx_value,
+                                        elements.len()
+                                    ),
+                                    &statement.pos,
+                                ));
+                            }
+                            elements[idx_value as usize].clone()
+                        } else {
+                            return InterpreterResult::Err(self.create_error(
+                                frut_lib::ErrorType::TypeError,
+                                "Cannot index non-array value".to_string(),
+                                &statement.pos,
+                            ));
+                        }
+                    }
+                    _ => {
+                        return InterpreterResult::Err(self.create_error(
+                            frut_lib::ErrorType::RuntimeError,
+                            "Invalid compound assignment target".to_string(),
+                            &statement.pos,
+                        ));
+                    }
+                };
+
+                let result = match operator {
+                    BinaryOperator::Add => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+                            (Value::Double(a), Value::Double(b)) => Value::Double(a + b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for += operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::Sub => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+                            (Value::Double(a), Value::Double(b)) => Value::Double(a - b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for -= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::Mul => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+                            (Value::Double(a), Value::Double(b)) => Value::Double(a * b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for *= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::Div => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => {
+                                if b == 0 {
+                                    return InterpreterResult::Err(self.create_error(
+                                        frut_lib::ErrorType::RuntimeError,
+                                        "Division by zero".to_string(),
+                                        &statement.pos,
+                                    ));
+                                }
+                                Value::Int(a / b)
+                            }
+                            (Value::Double(a), Value::Double(b)) => {
+                                if b == 0.0 {
+                                    return InterpreterResult::Err(self.create_error(
+                                        frut_lib::ErrorType::RuntimeError,
+                                        "Division by zero".to_string(),
+                                        &statement.pos,
+                                    ));
+                                }
+                                Value::Double(a / b)
+                            }
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for /= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::Mod => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => {
+                                if b == 0 {
+                                    return InterpreterResult::Err(self.create_error(
+                                        frut_lib::ErrorType::RuntimeError,
+                                        "Modulo by zero".to_string(),
+                                        &statement.pos,
+                                    ));
+                                }
+                                Value::Int(a % b)
+                            }
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for %= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::BitAnd => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a & b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for &= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::BitOr => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a | b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for |= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::BitXor => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => Value::Int(a ^ b),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for ^= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::ShiftLeft => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => {
+                                Value::Int(a << (b & 63))
+                            }
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for <<= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    BinaryOperator::ShiftRight => {
+                        match (lhs.clone(), rhs.clone()) {
+                            (Value::Int(a), Value::Int(b)) => {
+                                Value::Int(a >> (b & 63))
+                            }
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    format!("Unsupported types for >>= operator: {:?} and {:?}", 
+                                           lhs.get_type(), rhs.get_type()),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return InterpreterResult::Err(self.create_error(
+                            frut_lib::ErrorType::RuntimeError,
+                            "Comparison operators cannot be used in compound assignment".to_string(),
+                            &statement.pos,
+                        ));
+                    }
+                };
+
+                match &target.kind {
+                    ExpressionKind::Variable(name) => {
+                        if let Err(e) = self.environment.set_variable(name, result) {
+                            return InterpreterResult::Err(self.create_error(
+                                frut_lib::ErrorType::RuntimeError,
+                                e,
+                                &statement.pos,
+                            ));
+                        }
+                        InterpreterResult::Ok(())
+                    }
+                    ExpressionKind::MemberAccess { object: _, member } => {
+                        // TODO: 
+                        InterpreterResult::Err(self.create_error(
+                            frut_lib::ErrorType::RuntimeError,
+                            "Compound assignment to struct field not yet fully implemented".to_string(),
+                            &statement.pos,
+                        ))
+                    }
+                    ExpressionKind::Index { object, index } => {
+                        let arr_name = match &object.kind {
+                            ExpressionKind::Variable(name) => name.clone(),
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    "Invalid array assignment target".to_string(),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+
+                        let mut current = match self.environment.get_variable(&arr_name) {
+                            Some(v) => v.clone(),
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    format!("Variable '{}' not found", arr_name),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+
+                        let idx_value = match self.interpret_expression(index) {
+                            Ok(Value::Int(i)) => i,
+                            Ok(_) => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    "Array index must be an integer".to_string(),
+                                    &index.pos,
+                                ));
+                            }
+                            Err(e) => return InterpreterResult::Err(e),
+                        };
+
+                        match &mut current {
+                            Value::Array { elements, .. } => {
+                                if idx_value < 0 || idx_value as usize >= elements.len() {
+                                    return InterpreterResult::Err(self.create_error(
+                                        frut_lib::ErrorType::IndexOutOfBounds,
+                                        format!(
+                                            "Index {} out of bounds for array of length {}",
+                                            idx_value,
+                                            elements.len()
+                                        ),
+                                        &statement.pos,
+                                    ));
+                                }
+                                elements[idx_value as usize] = result;
+                            }
+                            _ => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::TypeError,
+                                    "Cannot index non-array value".to_string(),
+                                    &statement.pos,
+                                ));
+                            }
+                        }
+
+                        if let Err(e) = self.environment.set_variable(&arr_name, current) {
+                            return InterpreterResult::Err(self.create_error(
+                                frut_lib::ErrorType::RuntimeError,
+                                e,
+                                &statement.pos,
+                            ));
+                        }
+                        InterpreterResult::Ok(())
+                    }
+                    _ => InterpreterResult::Err(self.create_error(
+                        frut_lib::ErrorType::RuntimeError,
+                        "Invalid compound assignment target".to_string(),
                         &statement.pos,
                     )),
                 }
@@ -1370,6 +1731,14 @@ impl<'m> Interpreter {
                 Ok(Value::Array {
                     element_type,
                     elements: values,
+                })
+            }
+            ExpressionKind::ArrayRepeat { value, len } => {
+                let v = self.interpret_expression(value)?;
+                let element_type = v.get_type();
+                Ok(Value::Array {
+                    element_type,
+                    elements: vec![v; *len],
                 })
             }
             ExpressionKind::Index { object, index } => {

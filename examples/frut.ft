@@ -203,6 +203,16 @@ println("after write, fib[4] = ${fib[4]}");
 var pair: [string; 2] = ["Hello", "Frut"];
 println("${pair[0]}, ${pair[1]}!");
 
+// Array repeat shorthand: [value; len] fills an array with one value
+var zeros: [int; 4] = [0; 4];
+println("zeros = [${zeros[0]}, ${zeros[1]}, ${zeros[2]}, ${zeros[3]}]");
+
+var flags: [bool; 3] = [true; 3];
+println("flags = [${flags[0]}, ${flags[1]}, ${flags[2]}]");
+
+var rows: [[int; 2]; 2] = [[1, 2]; 2];
+println("rows[1][1] = ${rows[1][1]}");
+
 // 21. Generics
 func identity<T>(x: T): T {
     return x;
