@@ -802,13 +802,78 @@ impl<'m> Interpreter {
                         }
                         InterpreterResult::Ok(())
                     }
-                    ExpressionKind::MemberAccess { object: _, member } => {
-                        // TODO: 
-                        InterpreterResult::Err(self.create_error(
-                            frut_lib::ErrorType::RuntimeError,
-                            "Compound assignment to struct field not yet fully implemented".to_string(),
-                            &statement.pos,
-                        ))
+                    ExpressionKind::MemberAccess { .. } => {
+                        fn extract_path(expr: &Expression) -> Option<(String, Vec<String>)> {
+                            match &expr.kind {
+                                ExpressionKind::Variable(name) => Some((name.clone(), vec![])),
+                                ExpressionKind::MemberAccess { object, member } => {
+                                    let (root, mut path) = extract_path(object)?;
+                                    path.push(member.clone());
+                                    Some((root, path))
+                                }
+                                _ => None,
+                            }
+                        }
+
+                        fn set_nested_field(
+                            mut v: Value,
+                            path: &[String],
+                            new_val: Value,
+                        ) -> Result<Value, String> {
+                            if path.is_empty() {
+                                return Ok(new_val);
+                            }
+                            match &mut v {
+                                Value::Struct { fields, .. } => {
+                                    let key = &path[0];
+                                    let existing = fields
+                                        .remove(key)
+                                        .ok_or_else(|| format!("Struct has no field '{key}'"))?;
+                                    let updated = set_nested_field(existing, &path[1..], new_val)?;
+                                    fields.insert(key.clone(), updated);
+                                    Ok(v)
+                                }
+                                _ => Err("Member assignment target is not a struct".to_string()),
+                            }
+                        }
+
+                        let (root, path) = match extract_path(target) {
+                            Some(p) => p,
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    "Invalid compound assignment target".to_string(),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+                        let current = match self.environment.get_variable(&root) {
+                            Some(v) => v.clone(),
+                            None => {
+                                return InterpreterResult::Err(self.create_error(
+                                    frut_lib::ErrorType::RuntimeError,
+                                    format!("Variable '{root}' not found"),
+                                    &statement.pos,
+                                ));
+                            }
+                        };
+                        match set_nested_field(current, &path, result) {
+                            Ok(updated_root) => {
+                                if let Err(e) = self.environment.set_variable(&root, updated_root) {
+                                    return InterpreterResult::Err(self.create_error(
+                                        frut_lib::ErrorType::RuntimeError,
+                                        e,
+                                        &statement.pos,
+                                    ));
+                                }
+                                InterpreterResult::Ok(())
+                            }
+                            Err(msg) => InterpreterResult::Err(self.create_error(
+                                frut_lib::ErrorType::RuntimeError,
+                                msg,
+                                &statement.pos,
+                            )),
+                        }
                     }
                     ExpressionKind::Index { object, index } => {
                         let arr_name = match &object.kind {
